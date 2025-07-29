@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Millionaire Clicker</title>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; background-color: #f0f0f0; margin: 0; padding: 20px; }
+        #game-container { max-width: 600px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        #money { font-size: 2em; color: green; }
+        #click-button { font-size: 1.5em; padding: 10px 20px; background: #4CAF50; color: white; border: none; border-radius: 5px; cursor: pointer; }
+        #click-button:hover { background: #45a049; }
+        .upgrade { margin: 10px 0; }
+        .upgrade button { padding: 5px 10px; background: #2196F3; color: white; border: none; border-radius: 5px; cursor: pointer; }
+        .upgrade button:hover { background: #0b7dda; }
+        .upgrade button:disabled { background: gray; cursor: not-allowed; }
+        #message { margin-top: 20px; color: #333; }
+        #leaderboard { margin-top: 30px; }
+        #leaderboard ul { list-style: none; padding: 0; }
+        #leaderboard li { margin: 5px 0; }
+        #reset-button { font-size: 1em; padding: 8px 16px; background: #f44336; color: white; border: none; border-radius: 5px; cursor: pointer; margin-top: 20px; }
+        #reset-button:hover { background: #da190b; }
+        #auth-modal { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 20px; border-radius: 10px; box-shadow: 0 0 20px rgba(0,0,0,0.5); z-index: 1000; }
+        #auth-modal input { display: block; margin: 10px auto; padding: 5px; width: 80%; }
+        #auth-modal button { margin: 5px; }
+        #overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 999; }
+        #profile { display: none; margin-top: 20px; }
+        #profile ul { list-style: none; padding: 0; }
+        #user-status { margin-bottom: 10px; }
+    </style>
+    <!-- Firebase CDN - Updated to latest version -->
+    <script src="https://www.gstatic.com/firebasejs/12.0.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/12.0.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/12.0.0/firebase-database-compat.js"></script>
+</head>
+<body>
+    <div id="overlay"></div>
+    <div id="auth-modal">
+        <h2 id="auth-title">Sign Up</h2>
+        <input type="text" id="username-input" placeholder="Username (up to 10 characters)" maxlength="10">
+        <input type="email" id="email-input" placeholder="Email">
+        <input type="password" id="password-input" placeholder="Password">
+        <button id="auth-submit">Submit</button>
+        <button id="auth-switch">Already have an account? Login</button>
+        <button id="auth-cancel">Cancel</button>
+    </div>
+    <div id="game-container">
+        <h1>Millionaire Clicker</h1>
+        <p>Start from $0 and click your way to $1,000,000! Buy upgrades to earn faster. Create an account to submit scores, track your best, and compete on the global leaderboard with your username.</p>
+        <div id="user-status">Not logged in. <button id="login-button">Login</button> <button id="signup-button">Sign Up</button></div>
+        <button id="logout-button" style="display:none;">Logout</button>
+        <button id="profile-button" style="display:none;">View Profile</button>
+        <div id="money">$0</div>
+        <button id="click-button">Click to Earn $1</button>
+        <div class="upgrades">
+            <div class="upgrade">
+                <span>Lemonade Stand (Auto-earn $1/sec, Cost: $10)</span>
+                <button id="buy-lemonade">Buy</button>
+                <span id="lemonade-count">Owned: 0</span>
+            </div>
+            <div class="upgrade">
+                <span>Food Truck (Auto-earn $5/sec, Cost: $50)</span>
+                <button id="buy-truck">Buy</button>
+                <span id="truck-count">Owned: 0</span>
+            </div>
+            <div class="upgrade">
+                <span>Tech Startup (Auto-earn $20/sec, Cost: $200)</span>
+                <button id="buy-startup">Buy</button>
+                <span id="startup-count">Owned: 0</span>
+            </div>
+            <div class="upgrade">
+                <span>Stock Investment (Auto-earn $100/sec, Cost: $1,000)</span>
+                <button id="buy-stock">Buy</button>
+                <span id="stock-count">Owned: 0</span>
+            </div>
+            <div class="upgrade">
+                <span>Real Estate Empire (Auto-earn $500/sec, Cost: $5,000)</span>
+                <button id="buy-empire">Buy</button>
+                <span id="empire-count">Owned: 0</span>
+            </div>
+        </div>
+        <div id="message"></div>
+        <button id="reset-button">Reset Game</button>
+        <div id="leaderboard">
+            <h2>Global Leaderboard (Fastest Times to $1M)</h2>
+            <ul id="times-list"></ul>
+        </div>
+        <div id="profile">
+            <h2>Your Profile</h2>
+            <p>Best Time: <span id="best-time"></span></p>
+            <h3>Previous Times:</h3>
+            <ul id="previous-times"></ul>
+            <button id="close-profile">Close</button>
+        </div>
+    </div>
+
+    <script>
+        // Firebase Configuration - REPLACE WITH YOUR OWN FROM FIREBASE CONSOLE
+        const firebaseConfig = {
+            apiKey: "AIzaSyADDKKUw1PzpAfrYoW05hSGIB_NL2yVsGs",
+            authDomain: "millionaire-clicker.firebaseapp.com",
+            databaseURL: "https://millionaire-clicker-default-rtdb.firebaseio.com",
+            projectId: "millionaire-clicker",
+            storageBucket: "millionaire-clicker.firebasestorage.app",
+            messagingSenderId: "870226053955",
+            appId: "1:870226053955:web:3cca1172c22c2c7bb67df6",
+            measurementId: "G-V9HLFD1X92"
+        };
+
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const database = firebase.database();
+        const usersRef = database.ref('users');
+        const usernamesRef = database.ref('usernames');
+        const bestScoresRef = database.ref('bestScores');
+
+        let money = 0;
+        let lemonade = 0;
+        let truck = 0;
+        let startup = 0;
+        let stock = 0;
+        let empire = 0;
+        let startTime = Date.now();
+        let achieved = false;
+        let pendingTime = null;
+        let currentUsername = '';
+
+        const moneyDisplay = document.getElementById('money');
+        const clickButton = document.getElementById('click-button');
+        const message = document.getElementById('message');
+        const resetButton = document.getElementById('reset-button');
+        const authModal = document.getElementById('auth-modal');
+        const overlay = document.getElementById('overlay');
+        const authTitle = document.getElementById('auth-title');
+        const usernameInput = document.getElementById('username-input');
+        const emailInput = document.getElementById('email-input');
+        const passwordInput = document.getElementById('password-input');
+        const authSubmit = document.getElementById('auth-submit');
+        const authSwitch = document.getElementById('auth-switch');
+        const authCancel = document.getElementById('auth-cancel');
+        const userStatus = document.getElementById('user-status');
+        const loginButton = document.getElementById('login-button');
+        const signupButton = document.getElementById('signup-button');
+        const logoutButton = document.getElementById('logout-button');
+        const profileButton = document.getElementById('profile-button');
+        const profileDiv = document.getElementById('profile');
+        const bestTimeSpan = document.getElementById('best-time');
+        const previousTimesList = document.getElementById('previous-times');
+        const closeProfile = document.getElementById('close-profile');
+
+        let authMode = 'signup';
+
+        const upgrades = {
+            lemonade: { cost: 10, earn: 1, countElem: 'lemonade-count', button: 'buy-lemonade' },
+            truck: { cost: 50, earn: 5, countElem: 'truck-count', button: 'buy-truck' },
+            startup: { cost: 200, earn: 20, countElem: 'startup-count', button: 'buy-startup' },
+            stock: { cost: 1000, earn: 100, countElem: 'stock-count', button: 'buy-stock' },
+            empire: { cost: 5000, earn: 500, countElem: 'empire-count', button: 'buy-empire' }
+        };
+
+        function formatTime(ms) {
+            let secs = Math.floor(ms / 1000);
+            let mins = Math.floor(secs / 60);
+            secs %= 60;
+            let hours = Math.floor(mins / 60);
+            mins %= 60;
+            return `${hours}h ${mins}m ${secs}s`;
+        }
+
+        function showAuthModal(mode = 'signup') {
+            authMode = mode;
+            authTitle.textContent = mode === 'signup' ? 'Sign Up' : 'Login';
+            usernameInput.style.display = mode === 'signup' ? 'block' : 'none';
+            authSubmit.textContent = mode === 'signup' ? 'Sign Up' : 'Login';
+            authSwitch.textContent = mode === 'signup' ? 'Already have an account? Login' : 'Need an account? Sign Up';
+            authModal.style.display = 'block';
+            overlay.style.display = 'block';
+        }
+
+        function hideAuthModal() {
+            authModal.style.display = 'none';
+            overlay.style.display = 'none';
+            usernameInput.value = '';
+            emailInput.value = '';
+            passwordInput.value = '';
+        }
+
+        function handleAuthSubmit() {
+            const email = emailInput.value.trim();
+            const password = passwordInput.value.trim();
+            if (authMode === 'signup') {
+                const username = usernameInput.value.trim();
+                if (!username || username.length > 10) {
+                    alert('Invalid username');
+                    return;
+                }
+                auth.createUserWithEmailAndPassword(email, password)
+                    .then(userCredential => {
+                        const uid = userCredential.user.uid;
+                        usernamesRef.child(username).once('value').then(snap => {
+                            if (!snap.exists()) {
+                                usernamesRef.child(username).set(uid);
+                                usersRef.child(uid).set({ username, email });
+                                hideAuthModal();
+                                if (pendingTime) {
+                                    submitScore(pendingTime);
+                                    pendingTime = null;
+                                }
+                            } else {
+                                alert('Username taken');
+                                userCredential.user.delete().catch(console.error);
+                            }
+                        });
+                    })
+                    .catch(error => alert(error.message));
+            } else {
+                auth.signInWithEmailAndPassword(email, password)
+                    .then(() => {
+                        hideAuthModal();
+                        if (pendingTime) {
+                            submitScore(pendingTime);
+                            pendingTime = null;
+                        }
+                    })
+                    .catch(error => alert(error.message));
+            }
+        }
+
+        function submitScore(timeTaken) {
+            const uid = auth.currentUser.uid;
+            const score = { time: timeTaken, timestamp: firebase.database.ServerValue.TIMESTAMP };
+            usersRef.child(uid + '/scores').push(score);
+            usersRef.child(uid + '/bestTime').once('value').then(snap => {
+                const currentBest = snap.val() || Infinity;
+                if (timeTaken < currentBest) {
+                    usersRef.child(uid + '/bestTime').set(timeTaken);
+                    bestScoresRef.child(uid).set({
+                        username: currentUsername,
+                        bestTime: timeTaken
+                    });
+                }
+            });
+            message.textContent = `Score submitted! Time: ${formatTime(timeTaken)}. Reset to play again.`;
+        }
+
+        function updateMoney() {
+            moneyDisplay.textContent = `$${money.toLocaleString()}`;
+            if (money >= 1000000 && !achieved) {
+                achieved = true;
+                let timeTaken = Date.now() - startTime;
+                if (!auth.currentUser) {
+                    pendingTime = timeTaken;
+                    showAuthModal('signup');
+                    message.textContent = `You reached $1,000,000 in ${formatTime(timeTaken)}. Create an account to submit your score!`;
+                } else {
+                    submitScore(timeTaken);
+                }
+            } else if (money >= 1000000) {
+                message.textContent = `You reached $1,000,000. Time: ${formatTime(Date.now() - startTime)}. Reset to try for a better time!`;
+            }
+            checkUpgrades();
+        }
+
+        function checkUpgrades() {
+            for (const key in upgrades) {
+                const btn = document.getElementById(upgrades[key].button);
+                btn.disabled = money < upgrades[key].cost;
+            }
+        }
+
+        function buyUpgrade(type) {
+            const upgrade = upgrades[type];
+            if (money >= upgrade.cost) {
+                money -= upgrade.cost;
+                window[type]++; // Using window to avoid eval
+                document.getElementById(upgrade.countElem).textContent = `Owned: ${window[type]}`;
+                updateMoney();
+            }
+        }
+
+        function resetGame() {
+            money = 0;
+            lemonade = 0;
+            truck = 0;
+            startup = 0;
+            stock = 0;
+            empire = 0;
+            achieved = false;
+            startTime = Date.now();
+            message.textContent = '';
+            ['lemonade', 'truck', 'startup', 'stock', 'empire'].forEach(type => {
+                window[type] = 0;
+                document.getElementById(`${type}-count`).textContent = 'Owned: 0';
+            });
+            updateMoney();
+        }
+
+        function updateLeaderboard(scores) {
+            const list = document.getElementById('times-list');
+            list.innerHTML = '';
+            if (scores.length === 0) {
+                const li = document.createElement('li');
+                li.textContent = 'No times recorded yet.';
+                list.appendChild(li);
+            } else {
+                scores.forEach((score, index) => {
+                    const li = document.createElement('li');
+                    li.textContent = `#${index + 1}: ${score.username} - ${formatTime(score.bestTime)}`;
+                    list.appendChild(li);
+                });
+            }
+        }
+
+        function showProfile() {
+            const uid = auth.currentUser.uid;
+            usersRef.child(uid + '/bestTime').once('value').then(snap => {
+                bestTimeSpan.textContent = snap.val() ? formatTime(snap.val()) : 'None yet';
+            });
+            usersRef.child(uid + '/scores').orderByChild('timestamp').once('value').then(snap => {
+                previousTimesList.innerHTML = '';
+                snap.forEach(child => {
+                    const li = document.createElement('li');
+                    li.textContent = formatTime(child.val().time);
+                    previousTimesList.appendChild(li);
+                });
+                if (previousTimesList.children.length === 0) {
+                    const li = document.createElement('li');
+                    li.textContent = 'No previous times.';
+                    previousTimesList.appendChild(li);
+                }
+            });
+            profileDiv.style.display = 'block';
+        }
+
+        // Load global leaderboard
+        bestScoresRef.orderByChild('bestTime').limitToFirst(5).on('value', (snapshot) => {
+            const scores = [];
+            snapshot.forEach((child) => {
+                scores.push(child.val());
+            });
+            updateLeaderboard(scores);
+        });
+
+        auth.onAuthStateChanged(user => {
+            if (user) {
+                usersRef.child(user.uid).once('value').then(snap => {
+                    currentUsername = snap.val().username;
+                    userStatus.textContent = `Logged in as ${currentUsername}`;
+                    loginButton.style.display = 'none';
+                    signupButton.style.display = 'none';
+                    logoutButton.style.display = 'inline';
+                    profileButton.style.display = 'inline';
+                });
+            } else {
+                currentUsername = '';
+                userStatus.textContent = 'Not logged in.';
+                loginButton.style.display = 'inline';
+                signupButton.style.display = 'inline';
+                logoutButton.style.display = 'none';
+                profileButton.style.display = 'none';
+            }
+        });
+
+        loginButton.addEventListener('click', () => showAuthModal('login'));
+        signupButton.addEventListener('click', () => showAuthModal('signup'));
+        logoutButton.addEventListener('click', () => auth.signOut());
+        profileButton.addEventListener('click', showProfile);
+        closeProfile.addEventListener('click', () => profileDiv.style.display = 'none');
+
+        authSubmit.addEventListener('click', handleAuthSubmit);
+        authSwitch.addEventListener('click', () => showAuthModal(authMode === 'signup' ? 'login' : 'signup'));
+        authCancel.addEventListener('click', hideAuthModal);
+        overlay.addEventListener('click', hideAuthModal);
+
+        clickButton.addEventListener('click', () => {
+            money += 1;
+            updateMoney();
+        });
+
+        document.getElementById('buy-lemonade').addEventListener('click', () => buyUpgrade('lemonade'));
+        document.getElementById('buy-truck').addEventListener('click', () => buyUpgrade('truck'));
+        document.getElementById('buy-startup').addEventListener('click', () => buyUpgrade('startup'));
+        document.getElementById('buy-stock').addEventListener('click', () => buyUpgrade('stock'));
+        document.getElementById('buy-empire').addEventListener('click', () => buyUpgrade('empire'));
+
+        resetButton.addEventListener('click', resetGame);
+
+        setInterval(() => {
+            money += (lemonade * upgrades.lemonade.earn) + (truck * upgrades.truck.earn) + (startup * upgrades.startup.earn) + (stock * upgrades.stock.earn) + (empire * upgrades.empire.earn);
+            updateMoney();
+        }, 1000);
+
+        updateMoney();
+    </script>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'9669d6630a6cd6eb',t:'MTc1Mzc2Mjk3MC4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</html>
