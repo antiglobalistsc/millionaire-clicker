@@ -108,7 +108,11 @@
     };
 
     // Initialize Firebase
-    firebase.initializeApp(firebaseConfig);
+    try {
+        firebase.initializeApp(firebaseConfig);
+    } catch (error) {
+        console.error('Firebase initialization error:', error);
+    }
     const auth = firebase.auth();
     const database = firebase.database();
     const usersRef = database.ref('users');
@@ -125,6 +129,15 @@
     let achieved = false;
     let pendingTime = null;
     let currentUsername = '';
+
+    // Store upgrade counts in an object for reliable access
+    const upgradeCounts = {
+        lemonade: 0,
+        truck: 0,
+        startup: 0,
+        stock: 0,
+        empire: 0
+    };
 
     const moneyDisplay = document.getElementById('money');
     const clickButton = document.getElementById('click-button');
@@ -213,7 +226,10 @@
                         }
                     });
                 })
-                .catch(error => alert(error.message));
+                .catch(error => {
+                    console.error('Auth error:', error);
+                    alert(error.message);
+                });
         } else {
             auth.signInWithEmailAndPassword(email, password)
                 .then(() => {
@@ -223,7 +239,10 @@
                         pendingTime = null;
                     }
                 })
-                .catch(error => alert(error.message));
+                .catch(error => {
+                    console.error('Login error:', error);
+                    alert(error.message);
+                });
         }
     }
 
@@ -240,7 +259,7 @@
                     bestTime: timeTaken
                 });
             }
-        });
+        }).catch(error => console.error('Score submission error:', error));
         message.textContent = `Score submitted! Time: ${formatTime(timeTaken)}. Reset to play again.`;
     }
 
@@ -273,16 +292,13 @@
         const upgrade = upgrades[type];
         if (money >= upgrade.cost) {
             money -= upgrade.cost;
-            // Directly update local variables
-            switch(type) {
-                case 'lemonade': lemonade++; break;
-                case 'truck': truck++; break;
-                case 'startup': startup++; break;
-                case 'stock': stock++; break;
-                case 'empire': empire++; break;
-            }
-            document.getElementById(upgrade.countElem).textContent = `Owned: ${eval(type)}`;
+            // Update counts directly
+            upgradeCounts[type]++;
+            document.getElementById(upgrade.countElem).textContent = `Owned: ${upgradeCounts[type]}`;
+            console.log(`Bought ${type}, new count: ${upgradeCounts[type]}`);
             updateMoney();
+        } else {
+            console.warn(`Not enough money for ${type}, cost: ${upgrade.cost}, have: ${money}`);
         }
     }
 
@@ -293,13 +309,15 @@
         startup = 0;
         stock = 0;
         empire = 0;
+        for (const key in upgradeCounts) {
+            upgradeCounts[key] = 0;
+            document.getElementById(upgrades[key].countElem).textContent = 'Owned: 0';
+        }
         achieved = false;
         startTime = Date.now();
         message.textContent = '';
-        ['lemonade', 'truck', 'startup', 'stock', 'empire'].forEach(type => {
-            document.getElementById(`${type}-count`).textContent = 'Owned: 0';
-        });
         updateMoney();
+        console.log('Game reset');
     }
 
     function updateLeaderboard(scores) {
@@ -322,7 +340,7 @@
         const uid = auth.currentUser.uid;
         usersRef.child(uid + '/bestTime').once('value').then(snap => {
             bestTimeSpan.textContent = snap.val() ? formatTime(snap.val()) : 'None yet';
-        });
+        }).catch(error => console.error('Profile best time error:', error));
         usersRef.child(uid + '/scores').orderByChild('timestamp').once('value').then(snap => {
             previousTimesList.innerHTML = '';
             snap.forEach(child => {
@@ -335,7 +353,7 @@
                 li.textContent = 'No previous times.';
                 previousTimesList.appendChild(li);
             }
-        });
+        }).catch(error => console.error('Profile scores error:', error));
         profileDiv.style.display = 'block';
     }
 
@@ -346,7 +364,7 @@
             scores.push(child.val());
         });
         updateLeaderboard(scores);
-    });
+    }, error => console.error('Leaderboard error:', error));
 
     auth.onAuthStateChanged(user => {
         if (user) {
@@ -357,7 +375,8 @@
                 signupButton.style.display = 'none';
                 logoutButton.style.display = 'inline';
                 profileButton.style.display = 'inline';
-            });
+                console.log('User logged in:', currentUsername);
+            }).catch(error => console.error('Auth state error:', error));
         } else {
             currentUsername = '';
             userStatus.textContent = 'Not logged in.';
@@ -365,6 +384,7 @@
             signupButton.style.display = 'inline';
             logoutButton.style.display = 'none';
             profileButton.style.display = 'none';
+            console.log('User logged out');
         }
     });
 
@@ -382,6 +402,7 @@
     clickButton.addEventListener('click', () => {
         money += 1;
         updateMoney();
+        console.log('Money incremented:', money);
     });
 
     document.getElementById('buy-lemonade').addEventListener('click', () => buyUpgrade('lemonade'));
@@ -393,7 +414,11 @@
     resetButton.addEventListener('click', resetGame);
 
     setInterval(() => {
-        money += (lemonade * upgrades.lemonade.earn) + (truck * upgrades.truck.earn) + (startup * upgrades.startup.earn) + (stock * upgrades.stock.earn) + (empire * upgrades.empire.earn);
+        money += (upgradeCounts.lemonade * upgrades.lemonade.earn) +
+                 (upgradeCounts.truck * upgrades.truck.earn) +
+                 (upgradeCounts.startup * upgrades.startup.earn) +
+                 (upgradeCounts.stock * upgrades.stock.earn) +
+                 (upgradeCounts.empire * upgrades.empire.earn);
         updateMoney();
     }, 1000);
 
